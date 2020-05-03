@@ -1,0 +1,265 @@
+---
+title: "Homework 3"
+author: "John Duncan Hurt"
+date: "May 3, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### ANT 388 (Applied Data Analysis) Spring 2020
+
+
+## <br /> Challenge 1
+#### <br /> Part 1
+##### &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Setting up
+```{r message = FALSE}
+
+library(tidyverse)
+library(broom)
+library(infer)
+library(boot)
+
+d0 <- read_csv("https://raw.githubusercontent.com/difiore/ADA-datasets/master/KamilarAndCooperData.csv")
+d0
+
+
+#We know the two variables we will be working with. Do they have any NAs?
+
+any(is.na(d0[["Brain_Size_Species_Mean"]])) | any(is.na(d0[["MaxLongevity_m"]]))
+
+
+
+#The lm() function and our plotting functions should omit NA cases by default. But I like to just remove them from the data beforehand if they're going to be excluded; that way there is no ambiguity about how they will be handled.
+
+d <- filter(d0, !is.na(d0[["MaxLongevity_m"]]) & !is.na(d0[["Brain_Size_Species_Mean"]]))
+```
+
+##### <br /> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Now, we will be creating two regression models: one with the variables untransformed (referred to as Model 1 or 'mod') and another with the variables log-transformed (referred to as Model 2 or 'logmod'). Below we create the first linear regression model object, 'mod'. We then create a dataframe 'modtext', whose elements will tell the geom_text() function what we want to write on the plot and where we want that writing to appear. Finally, we create the plot object.
+```{r}
+#First model
+
+mod <- lm(MaxLongevity_m ~ Brain_Size_Species_Mean, data = d)
+summary(mod)
+
+
+
+#Creating the plot
+
+modtext <- data.frame(
+  a = 180,
+  b = 850,
+  c = paste(sep = "",
+            "y = ", 
+            round(mod$coefficients, 2)[1],
+            " + ",
+            round(mod$coefficients, 2)[2],
+            "x"
+            )        )
+
+modplot <- ggplot(d, aes(x = Brain_Size_Species_Mean, y = MaxLongevity_m)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_text(data = modtext, mapping = aes(x = a, y = b, label = c)) +
+  labs(x = "Brain Size", y = "Longevity") +
+  ggtitle("Model 1")
+```
+
+```{r}
+
+
+#Second model
+
+logmod <- lm(log(MaxLongevity_m) ~ log(Brain_Size_Species_Mean), data = d)
+summary(logmod)
+
+
+
+#Creating the plot 
+
+logmodtext <- data.frame(
+  a = 2.5,
+  b = 6.6,
+  c = paste(sep = "",
+            "y = ",
+            round(logmod$coefficients, 2)[1],
+            " + ",
+            round(logmod$coefficients, 2)[2],
+            "x"
+            )           )
+
+logmodplot <- ggplot(d, aes(x = log(Brain_Size_Species_Mean), y = log(MaxLongevity_m))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_text(data = logmodtext, mapping = aes(x = a, y = b, label = c)) + 
+  labs(x = "log(Brain Size)", y = "log(Longevity)") +
+  ggtitle("Model 2")
+```
+
+##### <br /> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Printing our two plots to complete the first step of Challenge 1 <br />
+
+```{r echo = FALSE}
+modplot
+
+logmodplot
+```
+
+
+### <br /> Part 2
+##### &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; We can see already from the text on our plots that the slope coefficient for Model 1 is 1.22, and the slope coefficient for Model 2 is 0.23. (Recall that the only difference between Model 1 and Model 2 is that the x and y values were log-transformed in the latter and not in the former). This refutes the null hypothesis that the slope coefficient (Beta1) is zero, confirming the alternative hypothesis that the slope coefficient is not zero. The 90% CI for the slope coefficient of each model is calculated below.
+```{r}
+#CI of Beta1 for Model 1
+confint(mod, "Brain_Size_Species_Mean", level = 0.90)
+
+#CI of Beta1 for Model 2
+confint(logmod, "log(Brain_Size_Species_Mean)", level = 0.90)
+```
+
+### <br /> Part 3
+```{r warning = FALSE}
+
+#We need to create 8 new variables in order to plot the CI and PI for both models.
+
+d2 <- select(d, Scientific_Name, Brain_Size_Species_Mean, MaxLongevity_m)
+
+modfitCI <- predict(mod, interval = "conf", level = 0.90)
+modfitPI <- predict(mod, interval = "predict", level = 0.90)
+
+d2 <- mutate(d2, modCIlwr = modfitCI[, "lwr"], modCIupr = modfitCI[, "upr"])
+d2 <- mutate(d2, modPIlwr = modfitPI[, "lwr"], modPIupr = modfitPI[, "upr"])
+
+logmodfitCI <- predict(logmod, interval = "conf", level = 0.90)
+logmodfitPI <- predict(logmod, interval = "predict", level = 0.90)
+
+d2 <- mutate(d2, logmodCIlwr = logmodfitCI[, "lwr"], logmodCIupr = logmodfitCI[, "upr"])
+d2 <- mutate(d2, logmodPIlwr = logmodfitPI[, "lwr"], logmodPIupr = logmodfitPI[, "upr"])
+
+d2
+
+
+
+#Now, we are finally ready to creat our new plot objects
+
+modplot2 <- ggplot(d2, aes(x = Brain_Size_Species_Mean, y = MaxLongevity_m)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_text(data = modtext, mapping = aes(x = a, y = b, label = c)) +
+  labs(x = "Brain Size", y = "Longevity") +
+  ggtitle("Model 1") +
+  geom_ribbon(aes(ymin = modCIlwr, ymax = modCIupr), alpha = 0.15, color = "black", linetype = "dashed") +
+  geom_ribbon(aes(ymin = modPIlwr, ymax = modPIupr), alpha = 0.15, color = "grey", linetype = "dashed") 
+
+
+
+
+logmodplot2 <- ggplot(d2, aes(x = log(Brain_Size_Species_Mean), y = log(MaxLongevity_m))) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_text(data = logmodtext, mapping = aes(x = a, y = b, label = c)) + 
+  labs(x = "log(Brain Size)", y = "log(Longevity)") +
+  ggtitle("Model 2") +
+  geom_ribbon(aes(ymin = logmodCIlwr, ymax = logmodCIupr), alpha = 0.15, color = "black", linetype = "dashed") +
+  geom_ribbon(aes(ymin = logmodPIlwr, ymax = logmodPIupr), alpha = 0.15, color = "grey", linetype = "dashed")
+
+```
+
+```{r echo = FALSE}
+modplot2
+
+logmodplot2
+```
+
+### <br /> Part 4
+##### &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Below we calculate the yhat value when x (Brain Size) is 750, along with the 90% prediction interval associated with this value of x. I do not really trust the model to make accurate predictions for this value of x because it exceeds the maximum range of the dataset used to create the model by a fair amount. 
+```{r}
+predict(mod, newdata = data.frame(Brain_Size_Species_Mean = 750), interval = "predict", level = 0.90)
+```
+
+### <br /> Part 5
+##### &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; I think Model 2 ('logmod') might be better just because log-transforming the data makes both variables more normally distributed, whereas prior to transformation they were both skewed (especially Brain_Size). The transformation thus makes the distribution of x and y values easier to visualize. The R2 value for 'logmod' is also slightly higher (0.578) than the R2 value for 'mod' (0.493), which reflects a better fit for Model 2.
+
+## <br /> Challenge 2
+### <br /> Part 1
+```{r}
+
+#Again, removing cases with NA values in the variables of interest
+
+d3 <- filter(d0, !is.na(d0[["HomeRange_km2"]]) & !is.na(d0[["Body_mass_female_mean"]]))
+
+
+
+#Running our new regression model
+
+mod3 <- lm(log(HomeRange_km2) ~ log(Body_mass_female_mean), data = d3)
+summary(mod3)
+
+
+
+#So, our Beta coefficients are...
+
+paste("Intercept = ", mod3$coefficients[1], ", Slope = ", mod3$coefficients[2], sep = "")
+```
+
+### <br /> Part 2
+```{r}
+
+#doing 1000 samples of size nrow(d0)
+s <- rep_sample_n(d3, size = nrow(d0), reps = 1000, replace = TRUE)
+
+#running linear regression on every sample
+  s %>% 
+  group_by(replicate) %>% 
+  do(lm(log(HomeRange_km2) ~ log(Body_mass_female_mean), data = .) %>% 
+  tidy()) -> smod
+ 
+#making two separate tibbles, one for all Beta0s and another for all Beta1s
+  smodInt <- filter(smod, term == "(Intercept)")
+  smodSlop <- filter(smod, term == "log(Body_mass_female_mean)")
+
+#making the histogram for Beta0s
+  smodIntPlot <- ggplot(smodInt, aes(x = estimate)) +
+  geom_histogram(color = "black", fill = "cyan") +
+  ggtitle("Sampling Distribution for Intercepts")
+  
+  
+#and again for Beta1s
+  smodSlopPlot <- ggplot(smodSlop, aes(x = estimate)) +
+  geom_histogram(color = "black", fill = "cyan") +
+  ggtitle("Sampling Distribution for Slopes")
+
+```
+
+```{r echo = FALSE}
+smodIntPlot
+
+smodSlopPlot
+```
+
+### <br /> Part 3
+```{r}
+#taking the SD of the Beta0 coefficient to obtain the SE
+ sd(smodInt[["estimate"]])
+ 
+
+#taking the SD of the Beta1 coefficient to obtain the SE
+ sd(smodSlop[["estimate"]])
+```
+
+### <br /> Part 4
+```{r}
+
+# I am really confused about a few concepts related to calculating the CI for the coefficients, and whether I am supposed to be working with two coefficients or with 2,000... This is preventing me from  If I had gotten to this point sooner I would have had time to ask you questions, so there is no excuse for leaving this unfinished. I'm really sorry, but this is all I can do for now...
+
+```
+
+
+
+
+
+
+
+
+
+
